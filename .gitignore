@@ -1,0 +1,26 @@
+# Flutter/Dart
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/pubspec.lock
+
+# Firebase — NUNCA subir estos archivos
+.firebase/
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase_options.dart
+functions/.runtimeconfig.json
+
+# Secrets
+.env
+**/*.env
+
+# IDE
+**/.idea/
+**/*.iml
+.vscode/settings.json
+
+# Node
+functions/node_modules/
+functions/lib/

@@ -1,0 +1,19 @@
+name: medisync
+
+packages:
+  - packages/**
+
+scripts:
+  test:
+    run: melos exec -- flutter test
+    description: Tests en todos los paquetes
+
+  analyze:
+    run: melos exec -- flutter analyze
+    description: Análisis estático en todos los paquetes
+
+  core:test:
+    run: dart test
+    packageFilters:
+      scope: medisync_core
+    description: Tests solo del core (Dart puro, rápido)
