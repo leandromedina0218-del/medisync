@@ -2,7 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'firebase_options.dart';
-import 'presentation/features/auth/screens/login_screen.dart';
+import 'presentation/router/app_router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,8 +33,8 @@ class MediSyncApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      // Mostrar la pantalla de login como pantalla inicial
-      home: const LoginScreen(),
+      // AppRouter maneja toda la navegación según el estado de sesión
+      home: const AppRouter(),
     );
   }
 }
