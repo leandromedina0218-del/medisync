@@ -8,6 +8,3 @@ export 'domain/repositories/result_repository.dart';
 
 // Value objects
 export 'domain/value_objects/user_role.dart';
-
-// Implementations
-export 'data/repositories_impl/auth_repository_impl.dart';
