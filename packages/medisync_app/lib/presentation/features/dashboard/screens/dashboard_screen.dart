@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../data/seed/firestore_seed.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class DashboardScreen extends ConsumerWidget {
@@ -13,7 +14,22 @@ class DashboardScreen extends ConsumerWidget {
         backgroundColor: const Color(0xFF0077B6),
         foregroundColor: Colors.white,
         actions: [
-          // Botón de cerrar sesión
+          // Botón temporal de seed — lo eliminamos después
+          IconButton(
+            icon: const Icon(Icons.upload_rounded),
+            tooltip: 'Cargar datos de prueba',
+            onPressed: () async {
+              await FirestoreSeed.run();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('✅ Datos de prueba cargados en Firestore'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
@@ -26,22 +42,16 @@ class DashboardScreen extends ConsumerWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.check_circle_rounded,
-              size: 80,
-              color: Color(0xFF0077B6),
-            ),
+            Icon(Icons.check_circle_rounded,
+                size: 80, color: Color(0xFF0077B6)),
             SizedBox(height: 16),
             Text(
               '¡Bienvenido a MediSync!',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             SizedBox(height: 8),
             Text(
-              'Dashboard en construcción',
+              'Presiona el ícono ↑ para cargar datos de prueba',
               style: TextStyle(color: Colors.grey),
             ),
           ],
