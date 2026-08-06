@@ -11,6 +11,12 @@
 - `medisync_web` — Lab & doctor web panel (Flutter Web)
 - `functions` — Cloud Functions (TypeScript)
 
+## 📐 System Design & Clean Architecture
+El proyecto implementa los principios de **Clean Architecture** y **Domain-Driven Design (DDD)** para garantizar la testabilidad, el desacoplamiento y el mantenimiento a largo plazo:
+- **Capa de Dominio (Domain):** Entidades puras del negocio clínico, objetos de valor y contratos de repositorios libres de dependencias externas.
+- **Capa de Datos (Data):** Gestión de fuentes de datos remotas y locales, mapeo de modelos y comunicación con servicios en la nube.
+- **Capa de Presentación (Presentation):** Gestión de estados reactiva para desacoplar la interfaz de usuario de la lógica de control.
+
 ## Tech stack
 Flutter · Firebase Auth · Firestore · Cloud Functions · Gemini API · Riverpod · Clean Architecture
 
