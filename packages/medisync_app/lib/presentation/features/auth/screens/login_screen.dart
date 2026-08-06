@@ -25,7 +25,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
-    // Validar el formulario antes de intentar el login
+    // Validar formulario antes de intentar login
     if (!_formKey.currentState!.validate()) return;
 
     await ref.read(authNotifierProvider.notifier).signIn(
@@ -49,7 +49,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Escuchar el estado del login para mostrar carga
+    // Escuchar estado del login para mostrar spinner
     final authState = ref.watch(authNotifierProvider);
     final isLoading = authState.isLoading;
 
@@ -66,24 +66,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Logo e ícono de la app
-                  const Icon(
-                    Icons.local_hospital_rounded,
-                    size: 72,
-                    color: Color(0xFF0077B6),
+                  // Logo del manual de marca
+                  Image.asset(
+                    'assets/images/logo_medisync.png',
+                    width: 280,
+                    filterQuality: FilterQuality.high,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
 
-                  // Título principal
-                  const Text(
-                    'MediSync',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF0077B6),
-                    ),
-                  ),
+                  // Subtítulo
                   const Text(
                     'Tu salud, siempre contigo',
                     textAlign: TextAlign.center,
@@ -92,7 +83,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       color: Colors.grey,
                     ),
                   ),
-                  const SizedBox(height: 48),
+                  const SizedBox(height: 24),
 
                   // Campo de correo electrónico
                   TextFormField(
@@ -153,14 +144,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   // Botón de login con estado de carga
                   ElevatedButton(
                     onPressed: isLoading ? null : _handleLogin,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0077B6),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
                     child: isLoading
                         ? const SizedBox(
                             height: 20,

@@ -3,11 +3,11 @@ class ExamResult {
   final String patientId;
   final String examTypeId;
   final String examTypeName;
-  final Map<String, double> values; // {'glucose': 95.0}
+  final Map<String, double> values;
   final DateTime takenAt;
-  final String? aiSummary; // null hasta que Cloud Function procese
+  final String? aiSummary;
   final ResultStatus status;
-  final String uploadedByUid; // uid del técnico
+  final String uploadedByUid;
 
   const ExamResult({
     required this.id,
