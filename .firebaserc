@@ -1,5 +1,18 @@
 {
   "projects": {
     "default": "medisync-dev-b520a"
-  }
+  },
+  "targets": {
+    "medisync-dev-b520a": {
+      "hosting": {
+        "app": [
+          "medisync-app-79"
+        ],
+        "lab": [
+          "medisync-lab-79"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }
