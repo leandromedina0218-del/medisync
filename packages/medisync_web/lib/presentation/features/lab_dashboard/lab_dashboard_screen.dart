@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../../../data/seed/exam_catalog_seed.dart';
 
 class LabDashboardScreen extends StatefulWidget {
   const LabDashboardScreen({super.key});
@@ -13,58 +14,139 @@ class _LabDashboardScreenState extends State<LabDashboardScreen> {
   final _formKey = GlobalKey<FormState>();
   final _patientIdCtrl = TextEditingController();
   final _valueCtrl = TextEditingController();
+  final _textResultCtrl = TextEditingController();
+  final _searchCtrl = TextEditingController();
+
   bool _isLoading = false;
+  bool _isLoadingCatalog = true;
+  String _qualitativeResult = 'Reactivo';
 
-  // Tipo de examen seleccionado
-  String _selectedExamType = 'glucose';
+  // Catálogo completo y filtrado
+  List<Map<String, dynamic>> _catalog = [];
+  List<Map<String, dynamic>> _filtered = [];
+  Map<String, dynamic>? _selectedExam;
 
-  // Catálogo de exámenes disponibles
-  final _examTypes = {
-    'glucose': 'Glucosa en ayunas',
-    'hemoglobin': 'Hemoglobina',
-  };
+  @override
+  void initState() {
+    super.initState();
+    _loadCatalog();
+    _searchCtrl.addListener(_filterCatalog);
+  }
 
   @override
   void dispose() {
     _patientIdCtrl.dispose();
     _valueCtrl.dispose();
+    _textResultCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
+  // Cargar catálogo completo desde Firestore
+  Future<void> _loadCatalog() async {
+    setState(() => _isLoadingCatalog = true);
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('exam_catalog')
+          .orderBy('nombre')
+          .get();
+
+      final list = snapshot.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+
+      setState(() {
+        _catalog = list;
+        _filtered = list;
+        _isLoadingCatalog = false;
+      });
+    } catch (e) {
+      setState(() => _isLoadingCatalog = false);
+    }
+  }
+
+  // Filtrar catálogo según búsqueda
+  void _filterCatalog() {
+    final query = _searchCtrl.text.toLowerCase();
+    setState(() {
+      _filtered = _catalog.where((exam) {
+        final nombre = (exam['nombre'] as String).toLowerCase();
+        final codigo = (exam['codigoPrueba'] as String).toLowerCase();
+        final cat = (exam['categoria'] as String).toLowerCase();
+        return nombre.contains(query) ||
+            codigo.contains(query) ||
+            cat.contains(query);
+      }).toList();
+    });
+  }
+
+  // Subir resultado a Firestore
   Future<void> _uploadResult() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_selectedExam == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecciona un tipo de examen'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
 
     try {
       final patientId = _patientIdCtrl.text.trim();
-      final value = double.parse(_valueCtrl.text.trim());
-      final examName = _examTypes[_selectedExamType]!;
       final techUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final fieldType = _selectedExam!['fieldType'] as String;
+      final examName = _selectedExam!['nombre'] as String;
+      final examCode = _selectedExam!['codigoPrueba'] as String;
+      final unit = _selectedExam!['unit'] as String;
 
-      // Subir resultado a Firestore en tiempo real
+      // Construir el valor según el tipo de campo
+      dynamic resultValue;
+      String aiSummary;
+
+      if (fieldType == 'numeric') {
+        final numVal = double.parse(_valueCtrl.text.trim());
+        resultValue = {examCode: numVal};
+        aiSummary =
+            'Resultado de $examName: ${_valueCtrl.text.trim()} $unit. Consulte con su médico para interpretación.';
+      } else if (fieldType == 'qualitative') {
+        resultValue = {examCode: _qualitativeResult};
+        aiSummary =
+            'Resultado de $examName: $_qualitativeResult. Consulte con su médico para interpretación.';
+      } else {
+        resultValue = {examCode: _textResultCtrl.text.trim()};
+        aiSummary =
+            'Resultado de $examName disponible. Consulte con su médico para interpretación.';
+      }
+
+      // Guardar en Firestore
       await FirebaseFirestore.instance
           .collection('results')
           .doc(patientId)
           .collection('examenes')
           .add({
-        'examTypeId': _selectedExamType,
+        'examTypeId': examCode,
         'examTypeName': examName,
-        'values': {_selectedExamType: value},
+        'categoria': _selectedExam!['categoria'],
+        'values': resultValue,
+        'unit': unit,
         'takenAt': Timestamp.now(),
         'status': 'published',
-        'aiSummary': _generateSummary(_selectedExamType, value),
+        'aiSummary': aiSummary,
         'uploadedByUid': techUid,
       });
 
-      // Limpiar formulario tras subir exitosamente
+      // Limpiar formulario
       _patientIdCtrl.clear();
       _valueCtrl.clear();
+      _textResultCtrl.clear();
+      setState(() => _selectedExam = null);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Resultado subido correctamente'),
+          SnackBar(
+            content: Text('✅ Resultado de $examName publicado'),
             backgroundColor: Colors.green,
           ),
         );
@@ -83,24 +165,6 @@ class _LabDashboardScreenState extends State<LabDashboardScreen> {
     }
   }
 
-  // Generar resumen automático según el valor ingresado
-  String _generateSummary(String examType, double value) {
-    if (examType == 'glucose') {
-      if (value < 70)
-        return 'Glucosa baja (hipoglucemia). Consulte a su médico.';
-      if (value <= 100)
-        return 'Glucosa en rango normal. Continúe con sus buenos hábitos.';
-      if (value <= 125)
-        return 'Glucosa ligeramente elevada. Reduzca consumo de azúcares.';
-      return 'Glucosa en rango de diabetes. Consulte a su médico de inmediato.';
-    } else {
-      if (value < 12)
-        return 'Hemoglobina baja. Se recomienda aumentar consumo de hierro.';
-      if (value <= 17.5) return 'Hemoglobina en rango normal.';
-      return 'Hemoglobina elevada. Consulte a su médico.';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -113,7 +177,30 @@ class _LabDashboardScreenState extends State<LabDashboardScreen> {
         backgroundColor: const Color(0xFF1E3A8A),
         foregroundColor: Colors.white,
         actions: [
-          // Botón de cerrar sesión
+          // Botón para recargar catálogo desde Firestore
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Recargar catálogo',
+            onPressed: _loadCatalog,
+          ),
+          // Botón seed del catálogo — solo usarlo una vez
+          IconButton(
+            icon: const Icon(Icons.cloud_upload_outlined),
+            tooltip: 'Cargar catálogo completo',
+            onPressed: () async {
+              await ExamCatalogSeed.run();
+              await _loadCatalog();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('✅ 589 pruebas cargadas en Firestore'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+          ),
+          // Cerrar sesión
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Cerrar sesión',
@@ -123,7 +210,7 @@ class _LabDashboardScreenState extends State<LabDashboardScreen> {
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const _LoginPlaceholder(),
+                    builder: (_) => const _SessionClosed(),
                   ),
                 );
               }
@@ -131,216 +218,296 @@ class _LabDashboardScreenState extends State<LabDashboardScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Encabezado de bienvenida
+      body: _isLoadingCatalog
+          ? const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: Color(0xFF1E3A8A)),
+                  SizedBox(height: 16),
+                  Text('Cargando catálogo de pruebas...'),
+                ],
+              ),
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 700),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Panel izquierdo — buscador de pruebas
+                      Expanded(
+                        flex: 2,
+                        child: _buildCatalogPanel(),
+                      ),
+                      const SizedBox(width: 20),
+                      // Panel derecho — formulario de resultado
+                      Expanded(
+                        flex: 3,
+                        child: _buildResultForm(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+    );
+  }
+
+  // Panel de búsqueda del catálogo
+  Widget _buildCatalogPanel() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Catálogo (${_catalog.length} pruebas)',
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Buscador
+            TextField(
+              controller: _searchCtrl,
+              decoration: const InputDecoration(
+                hintText: 'Buscar por nombre o código...',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Lista filtrada de pruebas
+            SizedBox(
+              height: 500,
+              child: ListView.builder(
+                itemCount: _filtered.length,
+                itemBuilder: (context, index) {
+                  final exam = _filtered[index];
+                  final isSelected =
+                      _selectedExam?['codigoPrueba'] == exam['codigoPrueba'];
+                  return ListTile(
+                    dense: true,
+                    selected: isSelected,
+                    selectedTileColor: const Color(0xFF1E3A8A).withOpacity(0.1),
+                    title: Text(
+                      exam['nombre'] as String,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    subtitle: Text(
+                      '${exam["codigoPrueba"]} · ${exam["categoria"]}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    onTap: () {
+                      setState(() {
+                        _selectedExam = exam;
+                        _valueCtrl.clear();
+                        _textResultCtrl.clear();
+                        _qualitativeResult = 'Reactivo';
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Formulario dinámico según el tipo de examen seleccionado
+  Widget _buildResultForm() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header del examen seleccionado
+              if (_selectedExam != null) ...[
                 Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       colors: [Color(0xFF1E3A8A), Color(0xFF0EA5E9)],
                     ),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Column(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Subir resultado de examen',
-                        style: TextStyle(
+                        _selectedExam!['nombre'] as String,
+                        style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 20,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      SizedBox(height: 4),
                       Text(
-                        'El paciente verá el resultado en tiempo real',
-                        style: TextStyle(
+                        '${_selectedExam!["codigoPrueba"]} · ${_selectedExam!["categoria"]}',
+                        style: const TextStyle(
                           color: Colors.white70,
-                          fontSize: 14,
+                          fontSize: 12,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
-
-                // Formulario de carga de resultados
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                const SizedBox(height: 16),
+              ] else
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey.shade300),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Datos del resultado',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          // UID del paciente
-                          TextFormField(
-                            controller: _patientIdCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'UID del paciente',
-                              hintText: 'Ej: ElEan1ssrRg0xRMjzfJpO48Juw72',
-                              prefixIcon: Icon(Icons.person_outlined),
-                              border: OutlineInputBorder(),
-                            ),
-                            validator: (v) => v == null || v.isEmpty
-                                ? 'Ingresa el UID del paciente'
-                                : null,
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Selector de tipo de examen
-                          DropdownButtonFormField<String>(
-                            value: _selectedExamType,
-                            decoration: const InputDecoration(
-                              labelText: 'Tipo de examen',
-                              prefixIcon: Icon(Icons.science_outlined),
-                              border: OutlineInputBorder(),
-                            ),
-                            items: _examTypes.entries.map((e) {
-                              return DropdownMenuItem(
-                                value: e.key,
-                                child: Text(e.value),
-                              );
-                            }).toList(),
-                            onChanged: (v) {
-                              if (v != null) {
-                                setState(() => _selectedExamType = v);
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Valor del resultado
-                          TextFormField(
-                            controller: _valueCtrl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            decoration: InputDecoration(
-                              labelText: 'Valor del resultado',
-                              hintText: _selectedExamType == 'glucose'
-                                  ? 'Ej: 95.0 mg/dL'
-                                  : 'Ej: 14.2 g/dL',
-                              prefixIcon: const Icon(Icons.numbers_outlined),
-                              suffixText: _selectedExamType == 'glucose'
-                                  ? 'mg/dL'
-                                  : 'g/dL',
-                              border: const OutlineInputBorder(),
-                            ),
-                            validator: (v) {
-                              if (v == null || v.isEmpty) {
-                                return 'Ingresa el valor';
-                              }
-                              if (double.tryParse(v) == null) {
-                                return 'Ingresa un número válido';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 24),
-
-                          // Botón de subir resultado
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: _isLoading ? null : _uploadResult,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF1E3A8A),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 16,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              icon: _isLoading
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Icon(Icons.upload_rounded),
-                              label: Text(
-                                _isLoading
-                                    ? 'Subiendo...'
-                                    : 'Publicar resultado',
-                                style: const TextStyle(fontSize: 16),
-                              ),
-                            ),
-                          ),
-                        ],
+                  child: const Row(
+                    children: [
+                      Icon(Icons.touch_app, color: Colors.grey),
+                      SizedBox(width: 8),
+                      Text(
+                        'Selecciona una prueba del catálogo',
+                        style: TextStyle(color: Colors.grey),
                       ),
-                    ),
+                    ],
                   ),
                 ),
+              const SizedBox(height: 16),
+
+              // UID del paciente
+              TextFormField(
+                controller: _patientIdCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'UID del paciente',
+                  prefixIcon: Icon(Icons.person_outlined),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) =>
+                    v == null || v.isEmpty ? 'Ingresa el UID' : null,
+              ),
+              const SizedBox(height: 16),
+
+              // Campo dinámico según fieldType
+              if (_selectedExam != null) ...[
+                if (_selectedExam!['fieldType'] == 'numeric') ...[
+                  TextFormField(
+                    controller: _valueCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Valor del resultado',
+                      suffixText: _selectedExam!['unit'] as String,
+                      prefixIcon: const Icon(Icons.numbers),
+                      border: const OutlineInputBorder(),
+                    ),
+                    validator: (v) {
+                      if (v == null || v.isEmpty) return 'Ingresa el valor';
+                      if (double.tryParse(v) == null) {
+                        return 'Número válido requerido';
+                      }
+                      return null;
+                    },
+                  ),
+                ] else if (_selectedExam!['fieldType'] == 'qualitative') ...[
+                  DropdownButtonFormField<String>(
+                    value: _qualitativeResult,
+                    decoration: const InputDecoration(
+                      labelText: 'Resultado',
+                      prefixIcon: Icon(Icons.science_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'Reactivo',
+                        child: Text('Reactivo'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'No Reactivo',
+                        child: Text('No Reactivo'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'Indeterminado',
+                        child: Text('Indeterminado'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'Positivo',
+                        child: Text('Positivo'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'Negativo',
+                        child: Text('Negativo'),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _qualitativeResult = v);
+                    },
+                  ),
+                ] else ...[
+                  TextFormField(
+                    controller: _textResultCtrl,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      labelText: 'Resultado / Descripción',
+                      prefixIcon: Icon(Icons.description_outlined),
+                      border: OutlineInputBorder(),
+                      alignLabelWithHint: true,
+                    ),
+                    validator: (v) =>
+                        v == null || v.isEmpty ? 'Ingresa el resultado' : null,
+                  ),
+                ],
                 const SizedBox(height: 24),
 
-                // Información del rango de referencia
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Rangos de referencia',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        if (_selectedExamType == 'glucose') ...[
-                          _RangeRow('Normal', '70 – 100 mg/dL', Colors.green),
-                          _RangeRow(
-                              'Elevado', '101 – 125 mg/dL', Colors.orange),
-                          _RangeRow('Diabetes', '≥ 126 mg/dL', Colors.red),
-                          _RangeRow(
-                              'Hipoglucemia', '< 70 mg/dL', Colors.purple),
-                        ] else ...[
-                          _RangeRow(
-                              'Normal (H)', '13.5 – 17.5 g/dL', Colors.green),
-                          _RangeRow(
-                              'Normal (M)', '12.0 – 15.5 g/dL', Colors.green),
-                          _RangeRow('Bajo', '< 12.0 g/dL', Colors.red),
-                          _RangeRow('Alto', '> 17.5 g/dL', Colors.orange),
-                        ],
-                      ],
+                // Botón publicar
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _isLoading ? null : _uploadResult,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1E3A8A),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    icon: _isLoading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.upload_rounded),
+                    label: Text(
+                      _isLoading ? 'Publicando...' : 'Publicar resultado',
+                      style: const TextStyle(fontSize: 16),
                     ),
                   ),
                 ),
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -348,35 +515,15 @@ class _LabDashboardScreenState extends State<LabDashboardScreen> {
   }
 }
 
-// Widget de fila de rango de referencia
-Widget _RangeRow(String label, String range, Color color) {
-  return Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Row(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 12),
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-        const Spacer(),
-        Text(range,
-            style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-      ],
-    ),
-  );
-}
-
-// Placeholder temporal para volver al login
-class _LoginPlaceholder extends StatelessWidget {
-  const _LoginPlaceholder();
+class _SessionClosed extends StatelessWidget {
+  const _SessionClosed();
 
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      body: Center(child: Text('Sesión cerrada — recarga la página')),
+      body: Center(
+        child: Text('Sesión cerrada — recarga la página'),
+      ),
     );
   }
 }
